@@ -11,9 +11,5 @@
   "bridges": {
     "codex": "deps/collaborating-with-codex/scripts/codex_bridge.py",
     "gemini": "deps/collaborating-with-gemini/scripts/gemini_bridge.py"
-  },
-  "claude": {
-    "command": "claude",
-    "args": ["--print"]
   }
 }

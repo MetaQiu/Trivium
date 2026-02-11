@@ -32,5 +32,5 @@ Below are three independent drafts of the same paragraph from different AI agent
 ## Output Format
 
 Output the merged paragraph first.
-Then output a line containing only "---".
+Then output a line containing only "=== SYNTHESIS NOTES ===".
 Then output synthesis notes explaining your choices (which parts came from which draft and why).

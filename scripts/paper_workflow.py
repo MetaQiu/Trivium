@@ -140,7 +140,7 @@ def call_codex_and_gemini_parallel(
     workspace: str, config: dict, project_root: Path,
 ) -> tuple[dict, dict]:
     """Call Codex and Gemini in parallel, return both responses."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         codex_future = pool.submit(call_codex, codex_prompt, workspace, config, project_root)
@@ -325,7 +325,7 @@ def step3_synthesis(
 
     response = call_claude(prompt, config)
 
-    parts = response.split("---", 1)
+    parts = response.split("=== SYNTHESIS NOTES ===", 1)
     merged = parts[0].strip()
     notes = parts[1].strip() if len(parts) > 1 else ""
 
@@ -480,7 +480,9 @@ def step6_voting(
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             return json.loads(text)
         except (json.JSONDecodeError, IndexError):
-            return {"verdict": "approve", "remaining_issues": [], "parse_error": raw[:500]}
+            return {"verdict": "reject", "remaining_issues": [
+                {"severity": "critical", "description": f"Agent returned unparseable response: {raw[:200]}"}
+            ], "parse_error": raw[:500]}
 
     codex_verdict = parse_verdict(check_agent_result(codex_result, "Codex"))
     gemini_verdict = parse_verdict(check_agent_result(gemini_result, "Gemini"))
@@ -646,13 +648,17 @@ def write_paragraph(
         print(f"\n  [Not Written] Paragraph NOT appended — unresolved issues remain.")
         print(f"  Review drafts in {batch_dir} and decide manually.")
 
-    # Persist state: mark batch completed
+    # Persist state
     state = load_state(workspace)
-    completed = state.get("completed_batches", [])
-    if batch_id not in completed:
-        completed.append(batch_id)
-    state["completed_batches"] = completed
-    state["current_batch"] = None
+    if consensus_passed:
+        completed = state.get("completed_batches", [])
+        if batch_id not in completed:
+            completed.append(batch_id)
+        state["completed_batches"] = completed
+        state["current_batch"] = None
+    else:
+        # Keep current_batch so `resume` mode can retry this paragraph
+        pass
     save_state(workspace, state)
 
 

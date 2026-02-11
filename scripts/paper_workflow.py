@@ -123,6 +123,22 @@ def call_codex_and_gemini_parallel(
     return codex_result, gemini_result
 
 
+def prompt_via_file(
+    prompt: str, save_path: Path,
+) -> str:
+    """Write full prompt to a file and return a short meta-prompt referencing it.
+
+    This avoids Windows 32KB command line length limits. The external agent
+    reads the file using its own filesystem tools.
+    """
+    write_file(save_path, prompt)
+    abs_path = save_path.resolve()
+    return (
+        f"Read the file at {abs_path} for your complete task instructions. "
+        "Follow them exactly and produce only the requested output."
+    )
+
+
 # ---------------------------------------------------------------------------
 # File Helpers
 # ---------------------------------------------------------------------------
@@ -214,9 +230,14 @@ def cmd_init_external(args, config: dict, project_root: Path) -> None:
     )
 
     print(f"  [Codex + Gemini] Analyzing codebase in parallel...", file=sys.stderr)
+
+    prompts_dir = ensure_dir(foundation / "_prompts")
+    codex_full = f"{prompt_base}\nFocus on: algorithm and logic-level details."
+    gemini_full = f"{prompt_base}\nFocus on: architecture and data-flow level details."
+
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=f"{prompt_base}\nFocus on: algorithm and logic-level details.",
-        gemini_prompt=f"{prompt_base}\nFocus on: architecture and data-flow level details.",
+        codex_prompt=prompt_via_file(codex_full, prompts_dir / "init_codex.md"),
+        gemini_prompt=prompt_via_file(gemini_full, prompts_dir / "init_gemini.md"),
         workspace=code_dir, config=config, project_root=project_root,
     )
 
@@ -259,9 +280,11 @@ def cmd_draft_external(args, config: dict, project_root: Path) -> None:
 
     prompt = safe_format(tpl, **context)
 
+    prompts_dir = ensure_dir(batch_dir / "_prompts")
     print(f"  [Codex + Gemini] Drafting in parallel...", file=sys.stderr)
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=prompt, gemini_prompt=prompt,
+        codex_prompt=prompt_via_file(prompt, prompts_dir / "draft.md"),
+        gemini_prompt=prompt_via_file(prompt, prompts_dir / "draft.md"),
         workspace=str(workspace), config=config, project_root=project_root,
     )
 
@@ -318,9 +341,11 @@ def cmd_review_external(args, config: dict, project_root: Path) -> None:
         write_paper_skill=write_paper_skill,
     )
 
+    prompts_dir = ensure_dir(review_dir / "_prompts")
     print(f"  [Codex + Gemini] Reviewing in parallel (round {round_num})...", file=sys.stderr)
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=codex_prompt, gemini_prompt=gemini_prompt,
+        codex_prompt=prompt_via_file(codex_prompt, prompts_dir / "review_codex.md"),
+        gemini_prompt=prompt_via_file(gemini_prompt, prompts_dir / "review_gemini.md"),
         workspace=str(workspace), config=config, project_root=project_root,
     )
 
@@ -369,9 +394,12 @@ def cmd_vote_external(args, config: dict, project_root: Path) -> None:
         flow_document=flow_document,
     )
 
+    prompts_dir = ensure_dir(batch_dir / "_prompts")
+    prompt_file = prompts_dir / f"vote_round_{round_num}.md"
     print(f"  [Codex + Gemini] Voting (round {round_num})...", file=sys.stderr)
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=vote_prompt_text, gemini_prompt=vote_prompt_text,
+        codex_prompt=prompt_via_file(vote_prompt_text, prompt_file),
+        gemini_prompt=prompt_via_file(vote_prompt_text, prompt_file),
         workspace=str(workspace), config=config, project_root=project_root,
     )
 

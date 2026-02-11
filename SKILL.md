@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 ## Path Resolution
 
-Trivium installation directory: !`python -c "import pathlib,os; candidates=[pathlib.Path.home()/'.claude'/'skills'/'trivium', *[pathlib.Path(p)/'.claude'/'skills'/'trivium' for p in os.environ.get('CLAUDE_ADD_DIRS','').split(os.pathsep) if p]]; print(next((str(c) for c in candidates if (c/'SKILL.md').exists()), 'NOT_FOUND'))"`
+Trivium installation directory: !`python -c "import pathlib,os; candidates=[pathlib.Path.home()/'.claude'/'skills'/'trivium', pathlib.Path.cwd()/'.claude'/'skills'/'trivium', *[pathlib.Path(p)/'.claude'/'skills'/'trivium' for p in os.environ.get('CLAUDE_ADD_DIRS','').split(os.pathsep) if p]]; print(next((str(c) for c in candidates if (c/'SKILL.md').exists()), 'NOT_FOUND'))"`
 
 The above resolved path is `TRIVIUM_HOME`. All references below use it:
 - Script: `TRIVIUM_HOME/scripts/paper_workflow.py`

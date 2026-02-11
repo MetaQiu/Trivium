@@ -8,6 +8,7 @@ cross-review, argue, and reach consensus on academic paper paragraphs.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -29,8 +30,40 @@ def load_config(project_root: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Template Formatting
+# ---------------------------------------------------------------------------
+
+def safe_format(template: str, **kwargs) -> str:
+    """Replace only known {key} placeholders, leaving other braces (e.g. JSON) intact.
+
+    Unlike str.format(), this will NOT raise KeyError on unrecognized {keys}
+    or bare braces in JSON examples within templates.
+    """
+    def replacer(match):
+        key = match.group(1)
+        if key in kwargs:
+            return str(kwargs[key])
+        return match.group(0)
+    return re.sub(r'\{(\w+)\}', replacer, template)
+
+
+# ---------------------------------------------------------------------------
 # Agent Callers
 # ---------------------------------------------------------------------------
+
+def _get_agent_timeout(config: dict) -> int:
+    """Get agent call timeout from config (default 600s)."""
+    return config.get("workflow", {}).get("agent_timeout", 600)
+
+
+def check_agent_result(result: dict, agent_name: str) -> str:
+    """Extract agent_messages from bridge result, warn on failure."""
+    if not result.get("success", False):
+        error = result.get("error", "unknown error")
+        print(f"  [warn] {agent_name} call failed: {error[:300]}")
+        return ""
+    return result.get("agent_messages", "")
+
 
 def call_codex(prompt: str, workspace: str, config: dict, project_root: Path,
                session_id: str = "") -> dict:
@@ -46,7 +79,7 @@ def call_codex(prompt: str, workspace: str, config: dict, project_root: Path,
 
     result = subprocess.run(
         cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=300,
+        timeout=_get_agent_timeout(config),
     )
     try:
         return json.loads(result.stdout)
@@ -74,7 +107,7 @@ def call_gemini(prompt: str, workspace: str, config: dict, project_root: Path,
 
     result = subprocess.run(
         cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        env=env, timeout=300,
+        env=env, timeout=_get_agent_timeout(config),
     )
     try:
         return json.loads(result.stdout)
@@ -82,16 +115,23 @@ def call_gemini(prompt: str, workspace: str, config: dict, project_root: Path,
         return {"success": False, "error": f"JSON parse failed: {result.stdout[:500]}"}
 
 
-def call_claude(prompt: str, config: dict) -> str:
+def call_claude(prompt: str, config: dict, cwd: str = "") -> str:
     """Call Claude CLI in non-interactive mode, return text response."""
     claude_cfg = config.get("claude", {})
     cmd = [claude_cfg.get("command", "claude")] + claude_cfg.get("args", ["--print"])
     cmd.extend(["--prompt", prompt])
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=300,
+    kwargs: dict[str, Any] = dict(
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=_get_agent_timeout(config),
     )
+    if cwd:
+        kwargs["cwd"] = cwd
+
+    result = subprocess.run(cmd, **kwargs)
+    if result.returncode != 0:
+        stderr_snippet = (result.stderr or "")[:300]
+        print(f"  [warn] Claude exited with code {result.returncode}: {stderr_snippet}")
     return result.stdout.strip()
 
 
@@ -191,11 +231,12 @@ def stage0_init(workspace: Path, code_dir: str, config: dict, project_root: Path
         "Output in Markdown. Be precise and factual, only describe what the code actually does."
     )
 
-    # Claude analyzes (module-level)
+    # Claude analyzes (module-level) — pass cwd so Claude can access the codebase
     print("  [Claude] Analyzing codebase (module-level)...")
     claude_understanding = call_claude(
         f"{prompt_base}\nFocus on: module-level structure and responsibilities.",
         config,
+        cwd=code_dir,
     )
     write_file(foundation / "claude_code_understanding.md", claude_understanding)
 
@@ -207,8 +248,8 @@ def stage0_init(workspace: Path, code_dir: str, config: dict, project_root: Path
         workspace=code_dir, config=config, project_root=project_root,
     )
 
-    codex_text = codex_result.get("agent_messages", codex_result.get("error", ""))
-    gemini_text = gemini_result.get("agent_messages", gemini_result.get("error", ""))
+    codex_text = check_agent_result(codex_result, "Codex")
+    gemini_text = check_agent_result(gemini_result, "Gemini")
     write_file(foundation / "codex_code_understanding.md", codex_text)
     write_file(foundation / "gemini_code_understanding.md", gemini_text)
 
@@ -246,7 +287,7 @@ def step2_independent_drafting(
     """Step 2: Three agents draft independently in parallel."""
     print("  [Step 2] Independent drafting...")
 
-    tpl = load_template(project_root, "draft_prompt.md").format(**context)
+    tpl = safe_format(load_template(project_root, "draft_prompt.md"), **context)
 
     # Claude drafts
     print("    [Claude] Drafting...")
@@ -259,8 +300,8 @@ def step2_independent_drafting(
         codex_prompt=tpl, gemini_prompt=tpl,
         workspace=str(workspace), config=config, project_root=project_root,
     )
-    codex_draft = codex_result.get("agent_messages", "")
-    gemini_draft = gemini_result.get("agent_messages", "")
+    codex_draft = check_agent_result(codex_result, "Codex")
+    gemini_draft = check_agent_result(gemini_result, "Gemini")
     write_file(batch_dir / "codex_draft.md", codex_draft)
     write_file(batch_dir / "gemini_draft.md", gemini_draft)
 
@@ -274,7 +315,8 @@ def step3_synthesis(
     """Step 3: Claude synthesizes three drafts into merged draft."""
     print("  [Step 3] Synthesizing drafts...")
 
-    prompt = load_template(project_root, "synthesis_prompt.md").format(
+    prompt = safe_format(
+        load_template(project_root, "synthesis_prompt.md"),
         claude_draft=claude_draft,
         codex_draft=codex_draft,
         gemini_draft=gemini_draft,
@@ -301,20 +343,24 @@ def step4_three_dimensional_review(
     review_dir = ensure_dir(batch_dir / f"review_round_{round_num}")
 
     # Dimension 1: Code Consistency (Codex)
-    codex_prompt = load_template(project_root, "review_code_consistency.md").format(
+    codex_prompt = safe_format(
+        load_template(project_root, "review_code_consistency.md"),
         merged_draft=merged_draft,
         flow_document=context["flow_document"],
     )
 
     # Dimension 2: SKILL Compliance (Gemini)
-    gemini_prompt = load_template(project_root, "review_skill_compliance.md").format(
+    gemini_prompt = safe_format(
+        load_template(project_root, "review_skill_compliance.md"),
         merged_draft=merged_draft,
         write_paper_skill=context["write_paper_skill"],
     )
 
     # Dimension 3: Research Soundness (Claude)
-    claude_prompt = load_template(project_root, "review_research_soundness.md").format(
+    claude_prompt = safe_format(
+        load_template(project_root, "review_research_soundness.md"),
         merged_draft=merged_draft,
+        flow_document=context["flow_document"],
     )
 
     # Claude reviews locally
@@ -339,10 +385,10 @@ def step4_three_dimensional_review(
             return {"dimension": fallback_dim, "issues": [], "parse_error": raw[:500]}
 
     code_review = parse_review(
-        codex_result.get("agent_messages", ""), "code_consistency"
+        check_agent_result(codex_result, "Codex"), "code_consistency"
     )
     skill_review = parse_review(
-        gemini_result.get("agent_messages", ""), "skill_compliance"
+        check_agent_result(gemini_result, "Gemini"), "skill_compliance"
     )
     research_review = parse_review(claude_review_raw, "research_soundness")
 
@@ -359,16 +405,18 @@ def step4_three_dimensional_review(
 
 def step5_dual_track_revision(
     merged_draft: str, reviews: dict, context: dict,
-    batch_dir: Path, config: dict, project_root: Path,
+    batch_dir: Path, round_num: int, config: dict, project_root: Path,
 ) -> str:
     """Step 5: Dual-track revision (Track A: content fix, Track B: academic polish)."""
     print("  [Step 5] Dual-track revision...")
+    revision_dir = ensure_dir(batch_dir / f"revision_round_{round_num}")
 
     reviews_text = json.dumps(reviews, indent=2, ensure_ascii=False)
 
     # Track A: Content Fix
     print("    [Track A] Content fix...")
-    track_a_prompt = load_template(project_root, "revision_track_a.md").format(
+    track_a_prompt = safe_format(
+        load_template(project_root, "revision_track_a.md"),
         merged_draft=merged_draft,
         reviews=reviews_text,
         flow_document=context["flow_document"],
@@ -379,26 +427,28 @@ def step5_dual_track_revision(
     revision_decisions = parts[0].strip() if len(parts) > 1 else ""
     revised_a = parts[1].strip() if len(parts) > 1 else track_a_response.strip()
 
-    write_file(batch_dir / "revised_A.md", revised_a)
-    write_file(batch_dir / "revision_log.md", revision_decisions)
+    write_file(revision_dir / "revised_A.md", revised_a)
+    write_file(revision_dir / "revision_log.md", revision_decisions)
 
     # Track B: Academic Polish (two sub-steps)
     # B1: Expression polish
     print("    [Track B1] Academic polish...")
-    track_b1_prompt = load_template(project_root, "revision_track_b_polish.md").format(
+    track_b1_prompt = safe_format(
+        load_template(project_root, "revision_track_b_polish.md"),
         revised_a=revised_a,
         write_paper_skill=context["write_paper_skill"],
     )
     polished = call_claude(track_b1_prompt, config)
-    write_file(batch_dir / "revised_B1_polish.md", polished)
+    write_file(revision_dir / "revised_B1_polish.md", polished)
 
     # B2: De-AI
     print("    [Track B2] De-AI...")
-    track_b2_prompt = load_template(project_root, "revision_track_b_deai.md").format(
+    track_b2_prompt = safe_format(
+        load_template(project_root, "revision_track_b_deai.md"),
         revised_a=polished,
     )
     revised_b = call_claude(track_b2_prompt, config)
-    write_file(batch_dir / "revised_B.md", revised_b)
+    write_file(revision_dir / "revised_B.md", revised_b)
     return revised_b
 
 
@@ -409,15 +459,17 @@ def step6_voting(
     """Step 6: Voting - Codex and Gemini approve or reject."""
     print(f"  [Step 6] Voting (round {round_num})...")
 
-    revision_log = read_file(batch_dir / "revision_log.md")
-    vote_prompt = load_template(project_root, "vote_prompt.md").format(
+    revision_dir = batch_dir / f"revision_round_{round_num}"
+    revision_log = read_file(revision_dir / "revision_log.md")
+    vote_prompt_text = safe_format(
+        load_template(project_root, "vote_prompt.md"),
         final_draft=final_draft,
         revision_log=revision_log,
         flow_document=context["flow_document"],
     )
 
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=vote_prompt, gemini_prompt=vote_prompt,
+        codex_prompt=vote_prompt_text, gemini_prompt=vote_prompt_text,
         workspace=str(workspace), config=config, project_root=project_root,
     )
 
@@ -430,8 +482,8 @@ def step6_voting(
         except (json.JSONDecodeError, IndexError):
             return {"verdict": "approve", "remaining_issues": [], "parse_error": raw[:500]}
 
-    codex_verdict = parse_verdict(codex_result.get("agent_messages", ""))
-    gemini_verdict = parse_verdict(gemini_result.get("agent_messages", ""))
+    codex_verdict = parse_verdict(check_agent_result(codex_result, "Codex"))
+    gemini_verdict = parse_verdict(check_agent_result(gemini_result, "Gemini"))
 
     verdicts = {"codex": codex_verdict, "gemini": gemini_verdict}
     write_file(batch_dir / f"verdict_round_{round_num}.json",
@@ -519,8 +571,9 @@ def write_paragraph(
             claude_draft, codex_draft, gemini_draft, context, batch_dir, config, project_root,
         )
 
-    # Steps 4-6: Review → Revise → Vote loop
+    # Steps 4-6: Review -> Revise -> Vote loop
     current_draft = merged
+    consensus_passed = False
     for round_num in range(1, max_rounds + 1):
         # Skip rounds that already passed consensus
         verdict_path = batch_dir / f"verdict_round_{round_num}.json"
@@ -533,10 +586,12 @@ def write_paragraph(
             if already_passed:
                 print(f"\n  --- Debate Round {round_num}/{max_rounds} already passed, skipping ---")
                 # Load the revised draft from this round
-                if (batch_dir / "revised_B.md").exists():
-                    current_draft = read_file(batch_dir / "revised_B.md")
-                continue
-            # Round existed but didn't pass — re-run from review
+                revised_path = batch_dir / f"revision_round_{round_num}" / "revised_B.md"
+                if revised_path.exists():
+                    current_draft = read_file(revised_path)
+                consensus_passed = True
+                break
+            # Round existed but didn't pass -- re-run from review
             print(f"\n  --- Debate Round {round_num}/{max_rounds} was rejected, re-running ---")
 
         print(f"\n  --- Debate Round {round_num}/{max_rounds} ---")
@@ -556,7 +611,7 @@ def write_paragraph(
         else:
             # Step 5: Dual-track revision
             current_draft = step5_dual_track_revision(
-                current_draft, reviews, context, batch_dir, config, project_root,
+                current_draft, reviews, context, batch_dir, round_num, config, project_root,
             )
 
         # Step 6: Voting
@@ -567,6 +622,7 @@ def write_paragraph(
 
         if passed:
             print(f"\n  [CONSENSUS REACHED] Round {round_num}")
+            consensus_passed = True
             break
 
         if round_num == max_rounds:
@@ -579,12 +635,16 @@ def write_paragraph(
 
         print(f"  [Round {round_num} rejected] Incorporating feedback for next round...")
 
-    # Append to paper.md
-    paper_path = workspace / "paper.md"
-    existing = read_file(paper_path)
-    separator = "\n\n" if existing else ""
-    write_file(paper_path, existing + separator + current_draft)
-    print(f"\n  [Written] Paragraph appended to {paper_path}")
+    # Append to paper.md only if consensus was reached
+    if consensus_passed:
+        paper_path = workspace / "paper.md"
+        existing = read_file(paper_path)
+        separator = "\n\n" if existing else ""
+        write_file(paper_path, existing + separator + current_draft)
+        print(f"\n  [Written] Paragraph appended to {paper_path}")
+    else:
+        print(f"\n  [Not Written] Paragraph NOT appended — unresolved issues remain.")
+        print(f"  Review drafts in {batch_dir} and decide manually.")
 
     # Persist state: mark batch completed
     state = load_state(workspace)

@@ -29,19 +29,19 @@
 Return ONLY a JSON object, no other text:
 
 ```json
-{{
+{
   "dimension": "research_soundness",
   "issues": [
-    {{
+    {
       "type": "logic | evidence | terminology | grammar",
       "sentence": "the exact sentence with the issue",
       "status": "sound | needs_revision",
       "severity": "critical | major | minor",
       "reason": "explanation",
       "suggestion": "how to fix it"
-    }}
+    }
   ]
-}}
+}
 ```
 
 如果没有"必须修改"的错误,返回空 issues 数组。

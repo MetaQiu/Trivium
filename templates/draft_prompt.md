@@ -28,6 +28,22 @@ Based on the following context, write Chapter {chapter} Paragraph {paragraph}.
 - Avoid copula avoidance: use "is" and "has" naturally, don't force "serves as" or "features"
 - No filler phrases: "In order to" → "To", "Due to the fact that" → "Because"
 
+## Sentence Construction (Gopen & Swan Principles)
+
+- Keep subject and verb close — do not separate them with long clauses
+- Place the most important information at the END of each sentence (stress position)
+- Put context/old information at the BEGINNING of each sentence (topic position)
+- Express action in verbs, not nominalizations: "We analyzed" not "We performed an analysis"
+- Minimize bare pronouns: "This result shows..." not "This shows..."
+- One sentence = one idea. If a sentence carries two ideas, split it.
+
+## Word Precision (Lipton & Steinhardt)
+
+- Replace vague terms: "performance" → "accuracy" or "latency"; "large" → "1B parameters"
+- Delete hedging words ("may", "can") unless genuinely uncertain
+- Delete intensifiers: "very", "extremely", "highly", "quite", "essentially"
+- Use consistent terminology: pick one term per concept and stick with it throughout
+
 ## Previous Text (for continuity)
 
 {previous_paragraphs}

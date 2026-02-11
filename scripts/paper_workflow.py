@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -135,7 +136,7 @@ def load_state(workspace: Path) -> dict:
     if state_path.exists():
         with open(state_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"stage": "init", "current_batch": None, "rounds": {}}
+    return {"init_completed": False, "current_batch": None, "completed_batches": []}
 
 
 def save_state(workspace: Path, state: dict) -> None:
@@ -157,13 +158,12 @@ def load_template(project_root: Path, name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build_context_bundle(workspace: Path, chapter: int, paragraph: int,
-                         user_instruction: str) -> dict:
+                         user_instruction: str, project_root: Path) -> dict:
     """Build the context bundle for a paragraph writing task."""
     foundation = workspace / "foundation"
     bundle = {
         "flow_document": read_file(foundation / "flow_document.md"),
-        "write_paper_skill": read_file(foundation / "write_paper_skill.md"),
-        "paper_outline": read_file(foundation / "paper_outline.md"),
+        "write_paper_skill": read_file(foundation / "write_paper_skill.md") or load_template(project_root, "structure_guide.md"),
         "previous_paragraphs": read_file(workspace / "paper.md"),
         "current_instruction": user_instruction,
         "chapter": chapter,
@@ -226,6 +226,12 @@ def stage0_init(workspace: Path, code_dir: str, config: dict, project_root: Path
     flow_doc = call_claude(synthesis_prompt, config)
     write_file(foundation / "flow_document.md", flow_doc)
     print(f"  [Done] flow_document.md written to {foundation / 'flow_document.md'}")
+
+    # Persist state: init completed
+    state = load_state(workspace)
+    state["init_completed"] = True
+    save_state(workspace, state)
+
     print("  [Action Required] Please review flow_document.md and confirm accuracy before proceeding.")
 
 
@@ -467,6 +473,17 @@ def write_paragraph(
     batch_dir = ensure_dir(workspace / "drafts" / batch_id)
     max_rounds = config.get("workflow", {}).get("max_debate_rounds", 3)
 
+    # Persist state: mark current batch in progress
+    state = load_state(workspace)
+    state["current_batch"] = {
+        "batch_id": batch_id,
+        "chapter": chapter,
+        "paragraph": paragraph,
+        "instruction": instruction,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(workspace, state)
+
     print(f"\n{'='*60}")
     print(f"  Writing: Chapter {chapter}, Paragraph {paragraph}")
     print(f"  Instruction: {instruction}")
@@ -474,23 +491,54 @@ def write_paragraph(
 
     # Step 1: Deep Context Load
     print("  [Step 1] Loading context...")
-    context = build_context_bundle(workspace, chapter, paragraph, instruction)
+    context = build_context_bundle(workspace, chapter, paragraph, instruction, project_root)
     write_file(batch_dir / "context_bundle.json",
                json.dumps(context, indent=2, ensure_ascii=False))
 
-    # Step 2: Independent Drafting
-    claude_draft, codex_draft, gemini_draft = step2_independent_drafting(
-        context, workspace, batch_dir, config, project_root,
+    # Step 2: Independent Drafting (skip if outputs already exist)
+    drafts_exist = all(
+        (batch_dir / f).exists()
+        for f in ("claude_draft.md", "codex_draft.md", "gemini_draft.md")
     )
+    if drafts_exist:
+        print("  [Step 2] Drafts already exist, skipping...")
+        claude_draft = read_file(batch_dir / "claude_draft.md")
+        codex_draft = read_file(batch_dir / "codex_draft.md")
+        gemini_draft = read_file(batch_dir / "gemini_draft.md")
+    else:
+        claude_draft, codex_draft, gemini_draft = step2_independent_drafting(
+            context, workspace, batch_dir, config, project_root,
+        )
 
-    # Step 3: Synthesis
-    merged = step3_synthesis(
-        claude_draft, codex_draft, gemini_draft, context, batch_dir, config, project_root,
-    )
+    # Step 3: Synthesis (skip if output already exists)
+    if (batch_dir / "merged_draft.md").exists():
+        print("  [Step 3] Merged draft already exists, skipping...")
+        merged = read_file(batch_dir / "merged_draft.md")
+    else:
+        merged = step3_synthesis(
+            claude_draft, codex_draft, gemini_draft, context, batch_dir, config, project_root,
+        )
 
     # Steps 4-6: Review → Revise → Vote loop
     current_draft = merged
     for round_num in range(1, max_rounds + 1):
+        # Skip rounds that already passed consensus
+        verdict_path = batch_dir / f"verdict_round_{round_num}.json"
+        if verdict_path.exists():
+            verdict_data = json.loads(read_file(verdict_path))
+            consensus_mode = config.get("workflow", {}).get("consensus_mode", "strict")
+            codex_ok = verdict_data.get("codex", {}).get("verdict") == "approve"
+            gemini_ok = verdict_data.get("gemini", {}).get("verdict") == "approve"
+            already_passed = (codex_ok and gemini_ok) if consensus_mode == "strict" else (codex_ok or gemini_ok)
+            if already_passed:
+                print(f"\n  --- Debate Round {round_num}/{max_rounds} already passed, skipping ---")
+                # Load the revised draft from this round
+                if (batch_dir / "revised_B.md").exists():
+                    current_draft = read_file(batch_dir / "revised_B.md")
+                continue
+            # Round existed but didn't pass — re-run from review
+            print(f"\n  --- Debate Round {round_num}/{max_rounds} was rejected, re-running ---")
+
         print(f"\n  --- Debate Round {round_num}/{max_rounds} ---")
 
         # Step 4: Three-dimensional review
@@ -537,6 +585,15 @@ def write_paragraph(
     separator = "\n\n" if existing else ""
     write_file(paper_path, existing + separator + current_draft)
     print(f"\n  [Written] Paragraph appended to {paper_path}")
+
+    # Persist state: mark batch completed
+    state = load_state(workspace)
+    completed = state.get("completed_batches", [])
+    if batch_id not in completed:
+        completed.append(batch_id)
+    state["completed_batches"] = completed
+    state["current_batch"] = None
+    save_state(workspace, state)
 
 
 # ---------------------------------------------------------------------------
@@ -585,8 +642,22 @@ def main():
 
     elif args.mode == "resume":
         state = load_state(workspace)
-        print(f"[resume] Current state: {json.dumps(state, indent=2)}")
-        print("[TODO] Resume logic not yet implemented.")
+        print(f"[resume] State overview:")
+        print(f"  init_completed: {state.get('init_completed', False)}")
+        print(f"  completed_batches: {state.get('completed_batches', [])}")
+
+        batch = state.get("current_batch")
+        if not batch:
+            print("  current_batch: None")
+            print("[resume] No interrupted task to resume.")
+            sys.exit(0)
+
+        print(f"  current_batch: {batch['batch_id']} (started {batch.get('started_at', '?')})")
+        print(f"[resume] Resuming chapter {batch['chapter']}, paragraph {batch['paragraph']}...")
+        write_paragraph(
+            workspace, batch["chapter"], batch["paragraph"],
+            batch["instruction"], config, project_root,
+        )
 
 
 if __name__ == "__main__":

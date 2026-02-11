@@ -1,0 +1,19 @@
+{
+  "proxy": {
+    "enabled": true,
+    "http": "http://127.0.0.1:7890",
+    "https": "http://127.0.0.1:7890"
+  },
+  "workflow": {
+    "max_debate_rounds": 3,
+    "consensus_mode": "strict"
+  },
+  "bridges": {
+    "codex": "deps/collaborating-with-codex/scripts/codex_bridge.py",
+    "gemini": "deps/collaborating-with-gemini/scripts/gemini_bridge.py"
+  },
+  "claude": {
+    "command": "claude",
+    "args": ["--print"]
+  }
+}

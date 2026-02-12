@@ -39,8 +39,9 @@ Execute ONLY the phase the user requests. Never skip ahead.
 **Trigger**: User says "理解代码"、"分析代码"、"Stage 0.1"、"init"
 
 **Before running**: Ask user for:
-1. `CODE_DIR`: 代码目录路径 (the source code to analyze)
-2. `WORKSPACE`: 论文工作空间路径 (where outputs will be saved)
+1. `WORKSPACE`: 论文工作空间路径 (where outputs will be saved)
+
+**Convention**: `CODE_DIR` = `WORKSPACE/code`. The source code to analyze MUST be placed in this directory before running. If `WORKSPACE/code` does not exist, tell the user to copy or symlink their source code there first.
 
 **Execution**:
 
@@ -59,6 +60,7 @@ Run in background, no timeout:
 python TRIVIUM_HOME/scripts/paper_workflow.py init-external --code-dir "CODE_DIR" --cd "WORKSPACE"
 ```
 This calls Codex (algorithm-level) and Gemini (architecture-level) in parallel.
+Both agents' workspace is set to WORKSPACE, and the prompt directs them to analyze code in CODE_DIR (which is WORKSPACE/code).
 Wait for it to complete, then verify success from the JSON output.
 
 **Step 3 — You synthesize all three analyses:**

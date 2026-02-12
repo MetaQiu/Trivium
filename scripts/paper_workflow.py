@@ -244,7 +244,7 @@ def cmd_init_external(args, config: dict, project_root: Path) -> None:
     codex_result, gemini_result = call_codex_and_gemini_parallel(
         codex_prompt=prompt_via_file(codex_full, prompts_dir / "init_codex.md"),
         gemini_prompt=prompt_via_file(gemini_full, prompts_dir / "init_gemini.md"),
-        workspace=code_dir, config=config, project_root=project_root,
+        workspace=str(workspace), config=config, project_root=project_root,
     )
 
     codex_text = check_agent_result(codex_result, "Codex")

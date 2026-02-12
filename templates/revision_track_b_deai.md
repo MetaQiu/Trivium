@@ -71,7 +71,7 @@ Based on Wikipedia's "Signs of AI writing" guide (WikiProject AI Cleanup):
 
 # Input
 
-{revised_a}
+{revised_b1_polish}
 
 # Output
 

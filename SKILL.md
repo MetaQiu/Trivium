@@ -173,13 +173,15 @@ Process every issue: ACCEPT (apply fix), REJECT (explain why original is correct
 Save revision decisions to `BATCH_DIR/revision_round_{ROUND}/revision_log.md`.
 Save revised paragraph to `BATCH_DIR/revision_round_{ROUND}/revised_A.md`.
 
-**Track B1 — Academic Polish:**
+**Track B1 — Academic Polish (input: Track A output):**
 Read `TRIVIUM_HOME/templates/revision_track_b_polish.md` for instructions.
+Apply these instructions to `BATCH_DIR/revision_round_{ROUND}/revised_A.md`.
 Apply Gopen & Swan 7 principles, fix grammar, improve sentence flow.
 Save to `BATCH_DIR/revision_round_{ROUND}/revised_B1_polish.md`.
 
-**Track B2 — De-AI:**
+**Track B2 — De-AI (input: Track B1 output):**
 Read `TRIVIUM_HOME/templates/revision_track_b_deai.md` for instructions.
+Apply these instructions to `BATCH_DIR/revision_round_{ROUND}/revised_B1_polish.md` (NOT revised_A.md).
 Detect and fix AI writing patterns. If the text is already natural, keep it unchanged.
 Save to `BATCH_DIR/revision_round_{ROUND}/revised_B.md`.
 

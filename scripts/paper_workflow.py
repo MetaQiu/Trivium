@@ -72,10 +72,13 @@ def call_codex(prompt: str, workspace: str, config: dict, project_root: Path,
     if session_id:
         cmd.extend(["--SESSION_ID", session_id])
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=_get_agent_timeout(config),
-    )
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=_get_agent_timeout(config),
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Codex call timed out after {_get_agent_timeout(config)}s"}
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -100,10 +103,13 @@ def call_gemini(prompt: str, workspace: str, config: dict, project_root: Path,
         env["HTTP_PROXY"] = proxy_cfg.get("http", "")
         env["HTTPS_PROXY"] = proxy_cfg.get("https", "")
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        env=env, timeout=_get_agent_timeout(config),
-    )
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=env, timeout=_get_agent_timeout(config),
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Gemini call timed out after {_get_agent_timeout(config)}s"}
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:

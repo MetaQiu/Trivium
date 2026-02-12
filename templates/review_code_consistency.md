@@ -12,10 +12,7 @@
 
 You are a technical accuracy reviewer. Check every sentence in the paragraph against the code flow document.
 
-For each sentence, determine:
-- **accurate**: The technical description matches what the code actually does
-- **inaccurate**: The description contradicts or misrepresents the code (provide the correct description)
-- **unverifiable**: The claim cannot be verified from the code flow document alone
+For each sentence, check whether the technical description matches what the code actually does. Only report sentences that are **inaccurate** or **unverifiable**. Do NOT include sentences that are accurate — if every sentence is correct, return an empty issues array.
 
 Pay special attention to:
 1. Algorithm descriptions — do the steps match the actual implementation?
@@ -25,7 +22,7 @@ Pay special attention to:
 
 ## Output
 
-Return ONLY a JSON object, no other text:
+Return ONLY a JSON object, no other text. If no issues are found, return `{"dimension": "code_consistency", "issues": []}`.
 
 ```json
 {
@@ -33,9 +30,9 @@ Return ONLY a JSON object, no other text:
   "issues": [
     {
       "sentence": "the exact sentence from the paragraph",
-      "status": "accurate | inaccurate | unverifiable",
+      "status": "inaccurate | unverifiable",
       "reason": "explanation of why",
-      "suggestion": "corrected text if inaccurate, empty string if accurate"
+      "suggestion": "corrected text if inaccurate, empty string if unverifiable"
     }
   ]
 }

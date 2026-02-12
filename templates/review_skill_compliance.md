@@ -12,7 +12,7 @@
 
 You are an academic style reviewer. Check this paragraph against the writing standard.
 
-Evaluate the following dimensions:
+Evaluate the following dimensions. Only report **non-compliant** items. Do NOT include compliant items — if everything is fine, return an empty issues array.
 
 1. **structure**: Does it follow the expected paragraph pattern (topic sentence → evidence → analysis → transition)?
 2. **terminology**: Are technical terms used correctly and consistently? Are common abbreviations kept as-is (LLM, CNN, etc.)?
@@ -26,7 +26,7 @@ Evaluate the following dimensions:
 
 ## Output
 
-Return ONLY a JSON object, no other text:
+Return ONLY a JSON object, no other text. If no issues are found, return `{"dimension": "skill_compliance", "issues": []}`.
 
 ```json
 {
@@ -35,7 +35,6 @@ Return ONLY a JSON object, no other text:
     {
       "type": "structure | terminology | citation | transition | tone",
       "sentence": "the exact sentence with the issue",
-      "status": "compliant | non_compliant",
       "reason": "explanation of the violation",
       "suggestion": "how to fix it"
     }

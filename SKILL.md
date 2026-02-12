@@ -163,12 +163,13 @@ Read all three review results:
 - `BATCH_DIR/review_round_{ROUND}/skill_compliance.json`
 - `BATCH_DIR/review_round_{ROUND}/research_soundness.json`
 
-Count total issues. If zero issues, skip revision and go directly to Step 6.
+Count total issues across all three review JSONs (only count entries that represent actual problems — empty `issues` arrays mean no problems found). If zero issues total, skip revision and go directly to Step 6.
 
 If there are issues:
 
 **Track A — Content Fix:**
 Read `TRIVIUM_HOME/templates/revision_track_a.md` for instructions.
+Use `CURRENT_DRAFT_FILE` as the draft under review. Combine the three review JSON files (code_consistency.json, skill_compliance.json, research_soundness.json) as the review issues input.
 Process every issue: ACCEPT (apply fix), REJECT (explain why original is correct), or PARTIALLY ADOPT (apply better fix). Code consistency issues are MANDATORY to fix.
 Save revision decisions to `BATCH_DIR/revision_round_{ROUND}/revision_log.md`.
 Save revised paragraph to `BATCH_DIR/revision_round_{ROUND}/revised_A.md`.

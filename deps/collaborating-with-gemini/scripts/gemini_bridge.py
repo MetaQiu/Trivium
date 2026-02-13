@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Generator, List, Optional
 
 
+def _progress(msg: str) -> None:
+    """Print progress message to stderr for real-time visibility."""
+    print(f"  [Gemini] {msg}", file=sys.stderr, flush=True)
+
+
 def _get_windows_npm_paths() -> List[Path]:
     """Return candidate directories for npm global installs on Windows."""
     if os.name != "nt":
@@ -229,6 +234,9 @@ def main():
     success = True
     err_message = ""
     thread_id = None
+    _last_reported_len = 0
+
+    _progress("Starting...")
 
     for line in run_shell_command(cmd, cwd=str(cd.absolute())):
         try:
@@ -243,8 +251,18 @@ def main():
                 ):
                     continue
                 agent_messages = agent_messages + line_dict.get("content", "")
+                cur_len = len(agent_messages)
+                if cur_len - _last_reported_len >= 200:
+                    _progress(f"Generating... ({cur_len} chars)")
+                    _last_reported_len = cur_len
             if line_dict.get("session_id") is not None:
                 thread_id = line_dict.get("session_id")
+            if "error" in item_type or "fail" in item_type:
+                success = False if len(agent_messages) == 0 else success
+                error_msg = line_dict.get("message", "") or line_dict.get("error", {}).get("message", "")
+                if error_msg:
+                    err_message += "\n\n[gemini error] " + error_msg
+                    _progress("Error: " + error_msg[:120])
 
         except json.JSONDecodeError:
             err_message += "\n\n[json decode error] " + line
@@ -272,8 +290,10 @@ def main():
     
     if success:
         result["agent_messages"] = agent_messages
+        _progress(f"Done ({len(agent_messages)} chars)")
     else:
         result["error"] = err_message
+        _progress("Failed")
         
     result["success"] = success
 

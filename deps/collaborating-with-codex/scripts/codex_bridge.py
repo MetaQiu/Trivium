@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import Generator, List, Optional
 
 
+def _progress(msg: str) -> None:
+    """Print progress message to stderr for real-time visibility."""
+    print(f"  [Codex] {msg}", file=sys.stderr, flush=True)
+
+
 def _get_windows_npm_paths() -> List[Path]:
     """Return candidate directories for npm global installs on Windows."""
     if os.name != "nt":
@@ -235,6 +240,9 @@ def main():
     success = True
     err_message = ""
     thread_id = None
+    _last_reported_len = 0
+
+    _progress("Starting...")
 
     for line in run_shell_command(cmd):
         try:
@@ -244,11 +252,16 @@ def main():
             item_type = item.get("type", "")
             if item_type == "agent_message":
                 agent_messages = agent_messages + item.get("text", "")
+                cur_len = len(agent_messages)
+                if cur_len - _last_reported_len >= 200:
+                    _progress(f"Generating... ({cur_len} chars)")
+                    _last_reported_len = cur_len
             if line_dict.get("thread_id") is not None:
                 thread_id = line_dict.get("thread_id")
             if "fail" in line_dict.get("type", ""):
                 success = False if len(agent_messages) == 0 else success
                 err_message += "\n\n[codex error] " + line_dict.get("error", {}).get("message", "")
+                _progress("Error: " + line_dict.get("error", {}).get("message", "")[:120])
             if "error" in line_dict.get("type", ""):
                 error_msg = line_dict.get("message", "")
                 is_reconnecting = bool(re.match(r'^Reconnecting\.\.\.\s+\d+/\d+$', error_msg))
@@ -256,6 +269,7 @@ def main():
                 if not is_reconnecting:
                     success = False if len(agent_messages) == 0 else success
                     err_message += "\n\n[codex error] " + error_msg
+                    _progress("Error: " + error_msg[:120])
 
         except json.JSONDecodeError:
             err_message += "\n\n[json decode error] " + line
@@ -280,9 +294,11 @@ def main():
             "SESSION_ID": thread_id,
             "agent_messages": agent_messages,
         }
+        _progress(f"Done ({len(agent_messages)} chars)")
 
     else:
         result = {"success": False, "error": err_message}
+        _progress("Failed")
 
     if args.return_all_messages:
         result["all_messages"] = all_messages

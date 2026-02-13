@@ -74,7 +74,8 @@ def call_codex(prompt: str, workspace: str, config: dict, project_root: Path,
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cmd, stdout=subprocess.PIPE, stderr=None,
+            text=True, encoding="utf-8", errors="replace",
             timeout=_get_agent_timeout(config),
         )
     except subprocess.TimeoutExpired:
@@ -105,7 +106,8 @@ def call_gemini(prompt: str, workspace: str, config: dict, project_root: Path,
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cmd, stdout=subprocess.PIPE, stderr=None,
+            text=True, encoding="utf-8", errors="replace",
             env=env, timeout=_get_agent_timeout(config),
         )
     except subprocess.TimeoutExpired:

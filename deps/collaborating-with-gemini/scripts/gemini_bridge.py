@@ -198,7 +198,7 @@ def main():
     parser = argparse.ArgumentParser(description="Gemini Bridge")
     parser.add_argument("--PROMPT", required=True, help="Instruction for the task to send to gemini.")
     parser.add_argument("--cd", required=True, type=Path, help="Set the workspace root for gemini before executing the task.")
-    parser.add_argument("--sandbox", action="store_true", default=False, help="Run in sandbox mode. Defaults to `False`.")
+    parser.add_argument("--sandbox", action=argparse.BooleanOptionalAction, default=False, help="Run in sandbox mode. Defaults to `False`. Use --sandbox to enable.")
     parser.add_argument("--SESSION_ID", default="", help="Resume the specified session of the gemini. Defaults to empty string, start a new session.")
     parser.add_argument("--return-all-messages", action="store_true", help="Return all messages (e.g. reasoning, tool calls, etc.) from the gemini session. Set to `False` by default, only the agent's final reply message is returned.")
     parser.add_argument("--model", default="", help="The model to use for the gemini session. This parameter is strictly prohibited unless explicitly specified by the user.")

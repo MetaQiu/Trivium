@@ -6,7 +6,7 @@ description: >
   Activate when user mentions: 论文写作、写论文、Trivium、理解代码、写作规范、写段落、论文审稿.
 user-invocable: true
 argument-hint: "[phase]"
-allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, mcp__augment-context-engine__codebase-retrieval
 ---
 
 ## Path Resolution
@@ -46,15 +46,33 @@ Execute ONLY the phase the user requests. Never skip ahead.
 **Execution**:
 
 **Step 1 — You analyze the codebase directly:**
-Use Glob and Read tools to explore `CODE_DIR`. Produce a comprehensive understanding document covering:
+First use Glob to list all source files in `CODE_DIR`, then use `mcp__augment-context-engine__codebase-retrieval` to understand module responsibilities and inter-module relationships. Use Read for files that need detailed inspection.
+
+Produce TWO outputs:
+
+**Output A: Code Structure Index** — Save to `WORKSPACE/foundation/code_structure_index.md`.
+This is a structured file map that Codex and Gemini will use. Format:
+```
+## Code Structure Index
+### [module_path/]
+- `filename.py` — one-line description | key classes/functions: ClassA, func_b, func_c
+```
+List EVERY source file (excluding static assets, icons, example code). For each file include:
+- Full relative path from CODE_DIR
+- One-line responsibility description
+- Key classes and functions by name
+- Recommended reading order (number each file 1, 2, 3... by dependency/importance)
+
+**Output B: Claude Understanding Document** — Save to `WORKSPACE/foundation/claude_code_understanding.md`.
+Comprehensive understanding document covering:
 - System architecture overview
 - Core algorithm flow (pseudo-code level)
 - Data flow paths
 - Key design decisions and rationale
 Focus on module-level structure and responsibilities.
-Save your analysis to `WORKSPACE/foundation/claude_code_understanding.md`.
 
-**Step 2 — Codex and Gemini analyze in parallel:**
+**Step 2 — Codex and Gemini analyze in parallel (MUST run after Step 1 completes):**
+Verify `WORKSPACE/foundation/code_structure_index.md` exists before proceeding. The script reads this file and embeds it into the prompts for Codex and Gemini, so they can read files directly without exploring.
 Run in background, no timeout:
 ```bash
 python TRIVIUM_HOME/scripts/paper_workflow.py init-external --code-dir "CODE_DIR" --cd "WORKSPACE"

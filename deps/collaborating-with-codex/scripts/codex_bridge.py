@@ -82,7 +82,7 @@ def _resolve_executable(name: str, env: dict) -> str:
     return name
 
 
-def run_shell_command(cmd: List[str]) -> Generator[str, None, None]:
+def run_shell_command(cmd: List[str], cwd: Optional[str] = None) -> Generator[str, None, None]:
     """Execute a command and stream its output line-by-line."""
     env = os.environ.copy()
     _augment_path_env(env)
@@ -119,6 +119,7 @@ def run_shell_command(cmd: List[str]) -> Generator[str, None, None]:
         encoding='utf-8',
         errors='replace',
         env=env,
+        cwd=cwd,
     )
 
     output_queue: queue.Queue[Optional[str]] = queue.Queue()
@@ -244,7 +245,7 @@ def main():
 
     _progress("Starting...")
 
-    for line in run_shell_command(cmd):
+    for line in run_shell_command(cmd, cwd=args.cd):
         try:
             line_dict = json.loads(line.strip())
             all_messages.append(line_dict)

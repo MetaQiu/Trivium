@@ -1,6 +1,12 @@
 # Trivium
 
-Multi-agent collaborative paper writing system. Orchestrates **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI** to independently draft, cross-review, argue, and reach consensus on academic papers.
+**[中文文档](README_zh.md)**
+
+A multi-agent collaborative paper writing workflow, implemented as a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill. It orchestrates **Claude Code**, **OpenAI Codex CLI**, and **Google Gemini CLI** to independently draft, cross-review, argue, and reach consensus on academic papers.
+
+## Why Trivium
+
+AI-assisted peer review is becoming increasingly common in academic publishing. Reviewers routinely use LLMs to evaluate manuscripts — checking for logical coherence, writing quality, and technical accuracy. A paper that has already been scrutinized and approved by the three leading LLMs (Claude, GPT, Gemini) is inherently aligned with the evaluation criteria these models apply. Trivium exploits this by making the same models that may judge your paper also participate in writing it: each paragraph is independently drafted, cross-reviewed, and iteratively revised until all three agents reach consensus. The result is a manuscript that has, by construction, passed the quality bar of the most widely used AI reviewers.
 
 ## How It Works
 
@@ -8,13 +14,13 @@ Multi-agent collaborative paper writing system. Orchestrates **Claude Code**, **
 Your Code Repo
      |
      v
-[Phase 0.1: 理解代码] — 3 agents analyze code in parallel → flow_document.md
+[Phase 0.1: Code Understanding] — 3 agents analyze code → flow_document.md
      |
      v
-[Phase 0.2: 写作规范] — You provide writing standards → write_paper_skill.md
+[Phase 0.2: Writing Standard] — You provide writing standards → write_paper_skill.md
      |
      v
-[Phase 1: 写段落] — Per-paragraph loop:
+[Phase 1: Write Paragraph] — Per-paragraph loop:
      Step 2: Three agents draft independently
      Step 3: Claude synthesizes three drafts → merged_draft.md
      Step 4: Three-dimensional review
@@ -62,8 +68,10 @@ Your Code Repo
 Clone directly into your Claude Code personal skills directory:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Trivium.git ~/.claude/skills/trivium
+git clone https://github.com/MetaQiu/Trivium.git ~/.claude/skills/trivium
 ```
+
+> Trivium is a **Claude Code skill** — a plugin that extends Claude Code with domain-specific capabilities. Once installed in the skills directory, it is automatically available in all your Claude Code sessions.
 
 Then configure your proxy (if needed for Gemini) by editing `~/.claude/skills/trivium/config.json`:
 
@@ -81,34 +89,29 @@ If you don't need a proxy, set `"enabled": false`.
 
 ## Usage
 
-Once installed, open Claude Code in any project and use:
-
-```
-/trivium init       — Analyze your codebase with three agents
-/trivium            — Then follow phase prompts
-```
-
-Or use natural language triggers:
+Once installed, open Claude Code in any project and use natural language triggers:
 
 | Trigger | Phase | Description |
 |---------|-------|-------------|
-| "理解代码" / "分析代码" / "init" | 0.1 | Three agents analyze your source code, produce `flow_document.md` |
-| "写作规范" / "设置写作规范" | 0.2 | Provide or confirm your writing standard |
-| "写段落" / "写第X章" / "write" | 1 | Write a paragraph with full draft-review-debate loop |
-| "查看状态" / "恢复" / "resume" | — | Resume interrupted work or check progress |
+| "understand code" / "analyze code" / "init" | 0.1 | Three agents analyze your source code, produce `flow_document.md` |
+| "writing standard" / "set writing standard" | 0.2 | Provide or confirm your writing standard |
+| "write paragraph" / "write chapter X" / "write" | 1 | Write a paragraph with full draft-review-debate loop |
+| "check status" / "resume" | — | Resume interrupted work or check progress |
 
 ### Example Session
 
 ```
-You:    理解代码
-Claude: 请提供代码目录路径和论文工作空间路径
-You:    代码在 /home/user/my-project, 工作空间 /home/user/paper
-Claude: [analyzes code with 3 agents → produces flow_document.md]
-Claude: 请确认 flow_document.md 的准确性
+You:    Analyze my code
+Claude: Please provide the paper workspace path
+You:    /home/user/paper
+Claude: [Step 1: Claude analyzes code → code_structure_index.md + claude_code_understanding.md]
+Claude: [Step 2: Codex + Gemini analyze in parallel using the index]
+Claude: [Step 3: Synthesizes all three → flow_document.md]
+Claude: Please review flow_document.md for accuracy
 
-You:    写段落, 第1章第1段, 描述系统架构总览
+You:    Write paragraph, chapter 1 paragraph 1, describe system architecture overview
 Claude: [3 agents draft → synthesize → review → revise → vote]
-Claude: 共识达成, 已写入 paper.md
+Claude: Consensus reached, appended to paper.md
 ```
 
 ## Project Structure
@@ -122,7 +125,7 @@ Trivium/
 ├── templates/                  # 10 prompt templates
 │   ├── draft_prompt.md         # Drafting rules and constraints
 │   ├── synthesis_prompt.md     # Three-draft merge instructions
-│   ├── review_code_consistency.md      # Codex: code ↔ text consistency check
+│   ├── review_code_consistency.md      # Codex: code-text consistency check
 │   ├── review_skill_compliance.md      # Gemini: writing standard compliance check
 │   ├── review_research_soundness.md    # Claude: research soundness check
 │   ├── revision_track_a.md             # Content fix (accept/reject/partial)
@@ -158,14 +161,19 @@ After running the workflow, your workspace will look like:
 
 ```
 WORKSPACE/
+├── code/                                # Source code to analyze (user places code here)
 ├── foundation/
-│   ├── claude_code_understanding.md   # Claude's code analysis
-│   ├── codex_code_understanding.md    # Codex's code analysis
-│   ├── gemini_code_understanding.md   # Gemini's code analysis
-│   ├── flow_document.md               # Synthesized ground truth (factual constraint)
-│   └── write_paper_skill.md           # Writing standard
+│   ├── code_structure_index.md          # Code structure index generated by Claude (fed to Codex/Gemini)
+│   ├── _prompts/                        # Auto-generated full prompt files (avoids CLI length limits)
+│   │   ├── init_codex.md
+│   │   └── init_gemini.md
+│   ├── claude_code_understanding.md     # Claude's code analysis
+│   ├── codex_code_understanding.md      # Codex's code analysis
+│   ├── gemini_code_understanding.md     # Gemini's code analysis
+│   ├── flow_document.md                 # Synthesized ground truth (factual constraint)
+│   └── write_paper_skill.md             # Writing standard
 ├── drafts/
-│   └── ch1_p1/                        # Per-paragraph batch directory
+│   └── ch1_p1/                          # Per-paragraph batch directory
 │       ├── claude_draft.md
 │       ├── codex_draft.md
 │       ├── gemini_draft.md
@@ -179,21 +187,26 @@ WORKSPACE/
 │       │   ├── revision_log.md
 │       │   ├── revised_A.md
 │       │   ├── revised_B1_polish.md
-│       │   └── revised_B.md           # Final revised draft for this round
+│       │   └── revised_B.md             # Final revised draft for this round
 │       └── verdict_round_1.json
-└── paper.md                           # Accumulated paper output
+└── paper.md                             # Accumulated paper output
 ```
 
 ## Workflow Details
 
 ### Phase 0.1: Code Understanding
 
-Three agents analyze your codebase from different angles:
-- **Claude**: Module-level structure and responsibilities (direct tool access)
-- **Codex**: Algorithm and logic-level details (via bridge subprocess)
-- **Gemini**: Architecture and data-flow level details (via bridge subprocess)
+Three agents analyze your codebase from different angles in three sequential steps:
 
-Claude synthesizes all three analyses into `flow_document.md`, which serves as the **factual constraint** for all subsequent writing. No technical claim in the paper may contradict this document.
+**Step 1 — Claude analyzes directly**: Claude reads all source files and produces two outputs:
+- `code_structure_index.md`: A structured file map listing every source file with its responsibility, key classes/functions, and recommended reading order. **This file is embedded into Codex and Gemini's prompts**, allowing them to read files directly by index rather than exploring the directory themselves.
+- `claude_code_understanding.md`: Claude's comprehensive understanding document.
+
+**Step 2 — Codex + Gemini analyze in parallel (depends on Step 1)**: `paper_workflow.py` reads `code_structure_index.md` and injects it into both agents' prompts, then calls them in parallel:
+- **Codex**: Focuses on algorithm and logic-level details → `codex_code_understanding.md`
+- **Gemini**: Focuses on architecture and data-flow details → `gemini_code_understanding.md`
+
+**Step 3 — Claude synthesizes all three analyses**: Reads all three understanding documents, resolves contradictions (favoring the most specific/accurate description), and produces `flow_document.md` — the **factual constraint** for all subsequent writing. No technical claim in the paper may contradict this document.
 
 ### Phase 1: Paragraph Writing
 
@@ -227,7 +240,11 @@ Each paragraph goes through a structured pipeline:
 
 **Codex/Gemini not found**: Ensure `codex` and `gemini` are in your system PATH. Verify with `codex --version` and `gemini --version`.
 
+**Gemini sandbox error** (`Sandbox image ... is missing or could not be pulled`): Gemini CLI's sandbox mode requires pulling a Google Docker image. The `gemini_bridge.py` defaults to sandbox disabled (`--sandbox` defaults to `False`). To enable it, pass `--sandbox` and ensure Docker can access `us-docker.pkg.dev`.
+
 **Gemini proxy issues**: Edit `config.json` and set the correct proxy address. The proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`) are set automatically for Gemini calls only.
+
+**Gemini 429 rate limit** (`No capacity available for model`): The Gemini API free tier has rate limits. The CLI retries automatically and usually succeeds after a few seconds. If this happens frequently, reduce parallel call frequency or try again later.
 
 **Agent timeout**: The default timeout is 600 seconds. For large codebases, increase `workflow.agent_timeout` in `config.json`. Timed-out agents return an error gracefully without crashing the workflow.
 

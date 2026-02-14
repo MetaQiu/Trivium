@@ -14,13 +14,14 @@ AI 辅助审稿在学术出版中正变得越来越普遍。审稿人日常使�
 你的代码仓库
      |
      v
-[阶段 0.1: 理解代码] — 三个智能体分析代码 → flow_document.md
+[阶段 1: 理解代码] — 三个智能体分析代码 → flow_document.md
      |
      v
-[阶段 0.2: 写作规范] — 提供写作规范 → write_paper_skill.md
+[阶段 2: 写作准备] — 提供写作规范、大纲、参考资料
+                         → WORKSPACE/materials/ → foundation/
      |
      v
-[阶段 1: 写段落] — 逐段落循环：
+[阶段 3: 写段落] — 逐段落循环：
      步骤 2：三个智能体独立起草
      步骤 3：Claude 综合三份草稿 → merged_draft.md
      步骤 4：三维审阅
@@ -93,9 +94,9 @@ git clone https://github.com/MetaQiu/Trivium.git ~/.claude/skills/trivium
 
 | 触发词 | 阶段 | 说明 |
 |--------|------|------|
-| "理解代码" / "分析代码" / "init" | 0.1 | 三个智能体分析源代码，生成 `flow_document.md` |
-| "写作规范" / "设置写作规范" | 0.2 | 提供或确认写作规范 |
-| "写段落" / "写第X章" / "write" | 1 | 完整的起草-审阅-辩论循环写作一个段落 |
+| "理解代码" / "分析代码" / "init" | 1 | 三个智能体分析源代码，生成 `flow_document.md` |
+| "写作规范" / "写作准备" / "大纲" / "参考资料" | 2 | 提供写作规范、论文大纲和参考资料 |
+| "写段落" / "写第X章" / "write" | 3 | 完整的起草-审阅-辩论循环写作一个段落 |
 | "查看状态" / "恢复" / "resume" | — | 恢复中断的工作或查看进度 |
 
 ### 示例会话
@@ -162,6 +163,10 @@ Trivium/
 ```
 WORKSPACE/
 ├── code/                                # 待分析的源代码（用户自行放置）
+├── materials/                           # 写作准备材料（用户自行放置）
+│   ├── write_paper_skill.md             # 写作规范（可选）
+│   ├── outline.md                       # 论文大纲（可选）
+│   └── references.md                    # 参考资料（可选）
 ├── foundation/
 │   ├── code_structure_index.md          # Claude 生成的代码结构索引（注入给 Codex/Gemini）
 │   ├── _prompts/                        # 自动生成的完整 prompt 文件（避免命令行长度限制）
@@ -171,7 +176,9 @@ WORKSPACE/
 │   ├── codex_code_understanding.md      # Codex 的代码分析
 │   ├── gemini_code_understanding.md     # Gemini 的代码分析
 │   ├── flow_document.md                 # 综合后的事实约束文档
-│   └── write_paper_skill.md             # 写作规范
+│   ├── write_paper_skill.md             # 写作规范（从 materials/ 复制）
+│   ├── outline.md                       # 论文大纲（从 materials/ 复制）
+│   └── references.md                    # 参考资料（从 materials/ 复制）
 ├── drafts/
 │   └── ch1_p1/                          # 每段落的批次目录
 │       ├── claude_draft.md
@@ -194,7 +201,7 @@ WORKSPACE/
 
 ## 工作流详解
 
-### 阶段 0.1：理解代码
+### 阶段 1：理解代码
 
 三个智能体从不同角度分析代码库，分为三个步骤：
 
@@ -208,7 +215,17 @@ WORKSPACE/
 
 **步骤 3 — Claude 综合三方分析**：读取三份理解文档，解决矛盾（以最具体/准确的描述为准），综合生成 `flow_document.md`，作为后续写作的**事实约束**。论文中的技术描述不得与此文档矛盾。
 
-### 阶段 1：写段落
+### 阶段 2：写作准备
+
+将准备材料放入 `WORKSPACE/materials/` 目录。所有文件均为可选：
+
+- `write_paper_skill.md` — 写作规范（风格指南、格式要求等）。未提供时使用内置的 `structure_guide.md` 作为默认规范。
+- `outline.md` — 论文大纲（章节结构、每节要点）。
+- `references.md` — 参考资料（相关论文、有用的段落、说明、笔记，或任何有助于写作的内容）。
+
+运行此阶段会将 `materials/` 中的文件复制到 `foundation/`，使其成为写作上下文的一部分。大纲和参考资料会注入到所有起草和综合 prompt 中，确保每个智能体在写作时都能看到全局论文结构和参考材料。
+
+### 阶段 3：写段落
 
 每个段落经过以下结构化流水线：
 
@@ -232,8 +249,8 @@ WORKSPACE/
 
 | 节点 | 时机 | 需要的操作 |
 |------|------|------------|
-| 阶段 0.1 之后 | `flow_document.md` 生成后 | 确认事实准确性 |
-| 阶段 0.2 之后 | 写作规范设定后 | 确认或自定义 |
+| 阶段 1 之后 | `flow_document.md` 生成后 | 确认事实准确性 |
+| 阶段 2 之后 | 写作准备材料加载后 | 确认材料正确 |
 | 最大辩论轮数后 | 3 轮未达成共识 | 接受当前稿件或手动编辑 |
 
 ## 常见问题

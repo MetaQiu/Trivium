@@ -3,7 +3,7 @@ name: trivium
 description: >
   Multi-agent collaborative paper writing. Orchestrates Claude Code, Codex CLI, and Gemini CLI
   to independently draft, cross-review, argue, and reach consensus on academic paper paragraphs.
-  Activate when user mentions: 论文写作、写论文、Trivium、理解代码、写作规范、写段落、论文审稿.
+  Activate when user mentions: 论文写作、写论文、Trivium、理解代码、写作规范、写作准备、大纲、参考资料、写段落、论文审稿.
 user-invocable: true
 argument-hint: "[phase]"
 allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, mcp__augment-context-engine__codebase-retrieval
@@ -34,9 +34,9 @@ Execute ONLY the phase the user requests. Never skip ahead.
 
 ---
 
-### Phase: 理解代码 (Code Understanding)
+### Phase 1: 理解代码 (Code Understanding)
 
-**Trigger**: User says "理解代码"、"分析代码"、"Stage 0.1"、"init"
+**Trigger**: User says "理解代码"、"分析代码"、"Stage 1"、"init"
 
 **Before running**: Ask user for:
 1. `WORKSPACE`: 论文工作空间路径 (where outputs will be saved)
@@ -93,24 +93,33 @@ Synthesize them into a single, comprehensive flow document. Resolve contradictio
 
 ---
 
-### Phase: 写作规范 (Writing Standard)
+### Phase 2: 写作准备 (Writing Preparation)
 
-**Trigger**: User says "写作规范"、"设置写作规范"、"Stage 0.2"
+**Trigger**: User says "写作规范"、"设置写作规范"、"写作准备"、"大纲"、"参考资料"、"outline"、"references"、"Stage 2"
 
 **Before running**: Ask user for:
-1. 写作规范文件的路径 (path to their writing standard file)
-2. `WORKSPACE`: 论文工作空间路径
+1. `WORKSPACE`: 论文工作空间路径
 
-**Action**: Copy the user's writing standard file to `WORKSPACE/foundation/write_paper_skill.md`.
-This phase does NOT call any script — just copy the file.
+**Convention**: `MATERIALS_DIR` = `WORKSPACE/materials`. The user places their preparation files in this directory before running. Expected files (all optional):
+- `MATERIALS_DIR/write_paper_skill.md` — 写作规范
+- `MATERIALS_DIR/outline.md` — 论文大纲
+- `MATERIALS_DIR/references.md` — 参考资料（任何对写作有用的内容：参考文献、相关段落、说明、笔记等）
 
-If user has no custom standard, inform them the default `TRIVIUM_HOME/templates/structure_guide.md` will be used automatically.
+If `MATERIALS_DIR` does not exist, tell the user to create it and place their files there.
+
+**Action**:
+1. Check each file in `MATERIALS_DIR`:
+   - If `write_paper_skill.md` exists → copy to `WORKSPACE/foundation/write_paper_skill.md`
+   - If `outline.md` exists → copy to `WORKSPACE/foundation/outline.md`
+   - If `references.md` exists → copy to `WORKSPACE/foundation/references.md`
+2. For each file found, confirm to the user. For each file not found, inform the user (but do not block).
+3. If `write_paper_skill.md` is not provided, inform the user the default `TRIVIUM_HOME/templates/structure_guide.md` will be used automatically during writing.
 
 ---
 
-### Phase: 写段落 (Write Paragraph)
+### Phase 3: 写段落 (Write Paragraph)
 
-**Trigger**: User says "写段落"、"写第X章"、"Stage 1"、"write"
+**Trigger**: User says "写段落"、"写第X章"、"Stage 3"、"write"
 
 **Before running**: Ask user for:
 1. `CHAPTER`: 章节号 (integer)
@@ -127,6 +136,8 @@ Set `BATCH_DIR` = `WORKSPACE/drafts/ch{CHAPTER}_p{PARAGRAPH}`.
 Read these files into memory (you will need them throughout):
 - `WORKSPACE/foundation/flow_document.md` → this is the FACTUAL CONSTRAINT (ground truth)
 - `WORKSPACE/foundation/write_paper_skill.md` (or `TRIVIUM_HOME/templates/structure_guide.md` if not present) → writing standard
+- `WORKSPACE/foundation/outline.md` → paper outline (may not exist)
+- `WORKSPACE/foundation/references.md` → reference materials (may not exist)
 - `WORKSPACE/paper.md` → previously written paragraphs (for continuity)
 
 #### Step 2: Independent Drafting (3 agents)
@@ -226,7 +237,7 @@ Read the JSON output. Check:
 
 ---
 
-### Phase: 恢复/查看状态 (Resume / Check Status)
+### 恢复/查看状态 (Resume / Check Status)
 
 **Trigger**: User says "查看状态"、"当前进度"、"resume"、"恢复"
 
@@ -241,11 +252,11 @@ Read the JSON output. Check:
 
 1. **Always run Python scripts in background** with no timeout — external agent calls can be slow.
 2. **Proxy**: Gemini calls need proxy. This is handled automatically by `config.json`. If user has proxy issues, tell them to edit `TRIVIUM_HOME/config.json`.
-3. **Never skip phases**: If user asks to write paragraphs but `flow_document.md` doesn't exist, remind them to run "理解代码" first.
+3. **Never skip phases**: If user asks to write paragraphs but `flow_document.md` doesn't exist, remind them to run Phase 1 "理解代码" first.
 4. **User intervention points**:
-   - After Phase 理解代码: user must confirm `flow_document.md`
-   - After Phase 写作规范: user must confirm `write_paper_skill.md`
-   - After Phase 写段落: if consensus fails, user decides
+   - After Phase 1 理解代码: user must confirm `flow_document.md`
+   - After Phase 2 写作准备: user must confirm materials are loaded
+   - After Phase 3 写段落: if consensus fails, user decides
 5. **Language**: Interact with user in Chinese. Your own drafting/review/revision work should produce English academic text (unless the paper is in Chinese).
 6. **Workspace reuse**: If user has been working in a specific workspace during this session, remember it and don't ask again.
 7. **Templates are instructions, not prompts**: When told to "read template X for instructions", you should read the template file, understand its rules and constraints, and follow them directly in your work. Do NOT pass the template to any subprocess.

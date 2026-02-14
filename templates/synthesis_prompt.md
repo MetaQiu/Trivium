@@ -18,6 +18,14 @@ Below are three independent drafts of the same paragraph from different AI agent
 
 {flow_document}
 
+## Paper Outline
+
+{outline}
+
+## Reference Materials
+
+{references}
+
 ## Task
 
 1. Compare all three drafts sentence by sentence.

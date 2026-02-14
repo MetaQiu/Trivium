@@ -44,6 +44,14 @@ Based on the following context, write Chapter {chapter} Paragraph {paragraph}.
 - Delete intensifiers: "very", "extremely", "highly", "quite", "essentially"
 - Use consistent terminology: pick one term per concept and stick with it throughout
 
+## Paper Outline (global structure — know where this paragraph fits)
+
+{outline}
+
+## Reference Materials (use these to inform your writing)
+
+{references}
+
 ## Previous Text (for continuity)
 
 {previous_paragraphs}

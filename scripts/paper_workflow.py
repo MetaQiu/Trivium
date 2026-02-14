@@ -184,6 +184,8 @@ def build_context_bundle(workspace: Path, chapter: int, paragraph: int,
     return {
         "flow_document": read_file(foundation / "flow_document.md"),
         "write_paper_skill": read_file(foundation / "write_paper_skill.md") or load_template(project_root, "structure_guide.md"),
+        "outline": read_file(foundation / "outline.md"),
+        "references": read_file(foundation / "references.md"),
         "previous_paragraphs": read_file(workspace / "paper.md"),
         "current_instruction": instruction,
         "chapter": chapter,

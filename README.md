@@ -24,10 +24,10 @@ Your Code Repo
 [Phase 3: Write Paragraph] — Per-paragraph loop:
      Step 2: Three agents draft independently
      Step 3: Claude synthesizes three drafts → merged_draft.md
-     Step 4: Three-dimensional review
-             ├── Claude: research soundness
-             ├── Codex: code consistency
-             └── Gemini: skill compliance
+     Step 4: Unified review + validation
+             4a-b: Three agents review independently (same template)
+             4c-d: Three agents discuss each issue (accept/reject vote)
+             → validated issues (≥2/3 accept → keep)
      Step 5: Dual-track revision
              Track A: content fix → revised_A.md
              Track B1: academic polish → revised_B1_polish.md
@@ -123,12 +123,14 @@ Trivium/
 ├── config.json                 # Proxy, workflow parameters, bridge paths
 ├── scripts/
 │   └── paper_workflow.py       # External agent coordinator (Codex + Gemini calls)
-├── templates/                  # 10 prompt templates
+├── templates/                  # 12 prompt templates
 │   ├── draft_prompt.md         # Drafting rules and constraints
 │   ├── synthesis_prompt.md     # Three-draft merge instructions
-│   ├── review_code_consistency.md      # Codex: code-text consistency check
-│   ├── review_skill_compliance.md      # Gemini: writing standard compliance check
-│   ├── review_research_soundness.md    # Claude: research soundness check
+│   ├── review_unified.md              # Unified review (all 3 dimensions, used by all agents)
+│   ├── review_validate.md             # Issue validation (accept/reject discussion)
+│   ├── review_code_consistency.md      # (legacy) Codex: code-text consistency check
+│   ├── review_skill_compliance.md      # (legacy) Gemini: writing standard compliance check
+│   ├── review_research_soundness.md    # (legacy) Claude: research soundness check
 │   ├── revision_track_a.md             # Content fix (accept/reject/partial)
 │   ├── revision_track_b_polish.md      # Academic polish (Gopen & Swan 7 principles)
 │   ├── revision_track_b_deai.md        # De-AI rewrite (24 AI pattern detection)
@@ -187,9 +189,14 @@ WORKSPACE/
 │       ├── merged_draft.md
 │       ├── synthesis_log.md
 │       ├── review_round_1/
-│       │   ├── code_consistency.json
-│       │   ├── skill_compliance.json
-│       │   └── research_soundness.json
+│       │   ├── claude_review.json     # Claude's unified review
+│       │   ├── codex_review.json      # Codex's unified review
+│       │   ├── gemini_review.json     # Gemini's unified review
+│       │   ├── all_issues.md          # Combined numbered issue list
+│       │   ├── claude_validation.json # Claude's accept/reject per issue
+│       │   ├── codex_validation.json  # Codex's accept/reject per issue
+│       │   ├── gemini_validation.json # Gemini's accept/reject per issue
+│       │   └── validated_issues.json  # Issues passing ≥2/3 validation
 │       ├── revision_round_1/
 │       │   ├── revision_log.md
 │       │   ├── revised_A.md
@@ -233,12 +240,11 @@ Each paragraph goes through a structured pipeline:
 
 2. **Synthesis** — Claude merges the three drafts sentence by sentence, choosing the best expression from each while maintaining coherence.
 
-3. **Three-Dimensional Review** — Three orthogonal quality checks run in parallel:
-   - Code Consistency (Codex): Does the text accurately describe the code?
-   - Skill Compliance (Gemini): Does it follow the writing standard?
-   - Research Soundness (Claude): Are there logic errors or terminology issues?
+3. **Unified Review with Explicit Validation** — The review step is split into two phases:
+   - **Review phase**: All three agents independently review the merged draft using the same unified template covering code consistency, research soundness, and skill compliance.
+   - **Validation phase**: All issues from all three reviewers are collected into a numbered list. Each agent then evaluates every issue and votes accept or reject. An issue is only kept if **≥2 out of 3 agents** explicitly accept it. This eliminates false positives through direct discussion rather than fragile sentence matching.
 
-4. **Dual-Track Revision** — A sequential pipeline processes all review feedback:
+4. **Dual-Track Revision** — A sequential pipeline processes majority-voted review feedback:
    - Track A: Fix content issues (accept/reject each review item)
    - Track B1: Academic polish (Gopen & Swan 7 principles)
    - Track B2: De-AI rewrite (detect and fix 24 AI writing patterns)

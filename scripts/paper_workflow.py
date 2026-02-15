@@ -197,31 +197,154 @@ def build_context_bundle(workspace: Path, chapter: int, paragraph: int,
 # JSON Response Parsers
 # ---------------------------------------------------------------------------
 
-def parse_review(raw: str, fallback_dim: str) -> dict:
+def _extract_json_object(raw: str) -> Optional[dict]:
+    """Extract the first valid JSON object from raw text.
+
+    Handles common agent output patterns:
+    - Pure JSON
+    - JSON wrapped in ```json ... ``` code blocks
+    - JSON preceded by conversational preamble text
+    """
+    text = raw.strip()
+
+    # 1. Try direct parse
     try:
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-        return json.loads(raw)
-    except (json.JSONDecodeError, IndexError):
-        return {"dimension": fallback_dim, "issues": [], "parse_error": raw[:500]}
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 2. Try extracting from markdown code block
+    code_block = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
+    if code_block:
+        try:
+            return json.loads(code_block.group(1).strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 3. Find the first '{' and try parsing from there (handles preamble text)
+    brace_pos = text.find('{')
+    if brace_pos >= 0:
+        candidate = text[brace_pos:]
+        # Try progressively shorter substrings from the last '}'
+        last_brace = candidate.rfind('}')
+        while last_brace >= 0:
+            try:
+                return json.loads(candidate[:last_brace + 1])
+            except (json.JSONDecodeError, ValueError):
+                last_brace = candidate.rfind('}', 0, last_brace)
+
+    return None
+
+
+def parse_review(raw: str, fallback_dim: str = "") -> dict:
+    parsed = _extract_json_object(raw)
+    if parsed:
+        # Unified format: {"issues": [...]}
+        if "issues" in parsed and isinstance(parsed["issues"], list):
+            return parsed
+        # Legacy per-dimension format: {"dimension": "...", "issues": [...]}
+        if "dimension" in parsed:
+            return parsed
+    return {"issues": [], "parse_error": raw[:500]}
 
 
 def parse_verdict(raw: str) -> dict:
-    try:
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-        return json.loads(text)
-    except (json.JSONDecodeError, IndexError):
-        return {"verdict": "reject", "remaining_issues": [
-            {"severity": "critical", "description": f"Agent returned unparseable response: {raw[:200]}"}
-        ], "parse_error": raw[:500]}
+    parsed = _extract_json_object(raw)
+    if parsed and "verdict" in parsed:
+        return parsed
+    return {"verdict": "reject", "remaining_issues": [
+        {"severity": "critical", "description": f"Agent returned unparseable response: {raw[:200]}"}
+    ], "parse_error": raw[:500]}
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: init-external
+# Issue List Builder (for validation phase)
 # ---------------------------------------------------------------------------
+
+def build_numbered_issue_list(reviews: list[dict], labels: list[str]) -> tuple[str, list[dict]]:
+    """Collect all issues from multiple reviews into a numbered list.
+
+    Returns (formatted_text, raw_issues_with_ids) where each issue gets a
+    unique numeric id and a source label.
+    """
+    all_issues = []
+    issue_id = 0
+    lines = []
+    for review, label in zip(reviews, labels):
+        for issue in review.get("issues", []):
+            issue_id += 1
+            entry = dict(issue)
+            entry["issue_id"] = issue_id
+            entry["source"] = label
+            all_issues.append(entry)
+
+            dim = issue.get("dimension", "unknown")
+            sent = issue.get("sentence", "(no sentence)")
+            reason = issue.get("reason", "(no reason)")
+            severity = issue.get("severity", "unknown")
+            suggestion = issue.get("suggestion", "")
+            lines.append(
+                f"### Issue #{issue_id} [source: {label}, dimension: {dim}, severity: {severity}]\n"
+                f"**Sentence:** {sent}\n"
+                f"**Reason:** {reason}\n"
+                f"**Suggestion:** {suggestion}\n"
+            )
+
+    formatted = "\n".join(lines) if lines else "(No issues found by any reviewer.)"
+    return formatted, all_issues
+
+
+def parse_validation(raw: str) -> dict:
+    """Parse a validation response into a dict."""
+    parsed = _extract_json_object(raw)
+    if parsed and "validations" in parsed:
+        return parsed
+    return {"validations": [], "parse_error": raw[:500]}
+
+
+def tally_validations(
+    all_issues: list[dict],
+    validations: list[dict],
+    threshold: int = 2,
+) -> dict:
+    """Count accept votes per issue and filter by threshold.
+
+    Each validation is {"validations": [{"issue_id": N, "vote": "accept|reject", ...}]}.
+    Returns {"issues": [...accepted...], "vote_details": [...]}.
+    """
+    # Count accepts per issue_id
+    accept_counts: dict[int, int] = {}
+    voter_details: dict[int, list[dict]] = {}
+    for val in validations:
+        for entry in val.get("validations", []):
+            iid = entry.get("issue_id")
+            if iid is None:
+                continue
+            voter_details.setdefault(iid, []).append(entry)
+            if entry.get("vote") == "accept":
+                accept_counts[iid] = accept_counts.get(iid, 0) + 1
+
+    accepted = []
+    vote_details = []
+    for issue in all_issues:
+        iid = issue["issue_id"]
+        accepts = accept_counts.get(iid, 0)
+        passed = accepts >= threshold
+
+        vote_details.append({
+            "issue_id": iid,
+            "accept_count": accepts,
+            "threshold": threshold,
+            "accepted": passed,
+            "voter_reasons": voter_details.get(iid, []),
+        })
+
+        if passed:
+            issue_copy = dict(issue)
+            issue_copy["accept_count"] = accepts
+            accepted.append(issue_copy)
+
+    return {"issues": accepted, "vote_details": vote_details}
 
 def cmd_init_external(args, config: dict, project_root: Path) -> None:
     """Codex + Gemini analyze codebase in parallel. Claude analyzes separately."""
@@ -337,7 +460,13 @@ def cmd_draft_external(args, config: dict, project_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_review_external(args, config: dict, project_root: Path) -> None:
-    """Codex (code consistency) + Gemini (skill compliance) review in parallel."""
+    """Codex + Gemini perform unified review in parallel (same template as Claude).
+
+    All three agents review across all dimensions. Claude's review is done
+    separately by the Claude Code session and saved before calling this script.
+    This function handles Codex and Gemini only. The validation/voting step
+    is handled by the separate 'validate-external' subcommand.
+    """
     workspace = args.cd.resolve()
     batch_dir = Path(args.batch_dir).resolve()
     round_num = args.round
@@ -352,41 +481,174 @@ def cmd_review_external(args, config: dict, project_root: Path) -> None:
 
     foundation = workspace / "foundation"
     flow_document = read_file(foundation / "flow_document.md")
-    write_paper_skill = read_file(foundation / "write_paper_skill.md") or load_template(project_root, "structure_guide.md")
+    write_paper_skill = (read_file(foundation / "write_paper_skill.md")
+                         or load_template(project_root, "structure_guide.md"))
 
-    # Build review prompts
-    codex_prompt = safe_format(
-        load_template(project_root, "review_code_consistency.md"),
+    # Build unified review prompt (same for both agents)
+    unified_tpl = load_template(project_root, "review_unified.md")
+    if not unified_tpl:
+        print(json.dumps({"success": False, "error": "review_unified.md template not found"}))
+        return
+
+    review_prompt = safe_format(
+        unified_tpl,
         merged_draft=draft_text,
         flow_document=flow_document,
-    )
-    gemini_prompt = safe_format(
-        load_template(project_root, "review_skill_compliance.md"),
-        merged_draft=draft_text,
         write_paper_skill=write_paper_skill,
     )
 
     prompts_dir = ensure_dir(review_dir / "_prompts")
-    print(f"  [Codex + Gemini] Reviewing in parallel (round {round_num})...", file=sys.stderr)
+    print(f"  [Codex + Gemini] Unified review in parallel (round {round_num})...", file=sys.stderr)
     codex_result, gemini_result = call_codex_and_gemini_parallel(
-        codex_prompt=prompt_via_file(codex_prompt, prompts_dir / "review_codex.md"),
-        gemini_prompt=prompt_via_file(gemini_prompt, prompts_dir / "review_gemini.md"),
+        codex_prompt=prompt_via_file(review_prompt, prompts_dir / "review_codex.md"),
+        gemini_prompt=prompt_via_file(review_prompt, prompts_dir / "review_gemini.md"),
         workspace=str(workspace), config=config, project_root=project_root,
     )
 
-    code_review = parse_review(check_agent_result(codex_result, "Codex"), "code_consistency")
-    skill_review = parse_review(check_agent_result(gemini_result, "Gemini"), "skill_compliance")
+    codex_review = parse_review(check_agent_result(codex_result, "Codex"))
+    gemini_review = parse_review(check_agent_result(gemini_result, "Gemini"))
 
-    code_path = review_dir / "code_consistency.json"
-    skill_path = review_dir / "skill_compliance.json"
-    write_file(code_path, json.dumps(code_review, indent=2, ensure_ascii=False))
-    write_file(skill_path, json.dumps(skill_review, indent=2, ensure_ascii=False))
+    # Save individual reviews
+    write_file(review_dir / "codex_review.json",
+               json.dumps(codex_review, indent=2, ensure_ascii=False))
+    write_file(review_dir / "gemini_review.json",
+               json.dumps(gemini_review, indent=2, ensure_ascii=False))
 
     result = {
         "success": True,
         "review_dir": str(review_dir),
-        "code_consistency": code_review,
-        "skill_compliance": skill_review,
+        "codex_issues": len(codex_review.get("issues", [])),
+        "gemini_issues": len(gemini_review.get("issues", [])),
+    }
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: validate-external
+# ---------------------------------------------------------------------------
+
+def cmd_validate_external(args, config: dict, project_root: Path) -> None:
+    """Codex + Gemini validate the combined issue list in parallel.
+
+    Loads all three reviews (Claude, Codex, Gemini), builds a numbered issue
+    list, sends it to Codex and Gemini for accept/reject voting. Claude's
+    validation is done separately by the Claude Code session and saved as
+    claude_validation.json before calling this script. This function tallies
+    all three validations and outputs validated_issues.json.
+    """
+    workspace = args.cd.resolve()
+    batch_dir = Path(args.batch_dir).resolve()
+    round_num = args.round
+    draft_file = Path(args.draft_file).resolve()
+
+    review_dir = batch_dir / f"review_round_{round_num}"
+    if not review_dir.exists():
+        print(json.dumps({"success": False, "error": f"Review dir not found: {review_dir}"}))
+        return
+
+    draft_text = read_file(draft_file)
+    foundation = workspace / "foundation"
+    flow_document = read_file(foundation / "flow_document.md")
+    write_paper_skill = (read_file(foundation / "write_paper_skill.md")
+                         or load_template(project_root, "structure_guide.md"))
+
+    # Load all three reviews
+    claude_review = {"issues": []}
+    claude_path = review_dir / "claude_review.json"
+    if claude_path.exists():
+        try:
+            claude_review = json.loads(read_file(claude_path))
+        except json.JSONDecodeError:
+            pass
+
+    codex_review = {"issues": []}
+    codex_path = review_dir / "codex_review.json"
+    if codex_path.exists():
+        try:
+            codex_review = json.loads(read_file(codex_path))
+        except json.JSONDecodeError:
+            pass
+
+    gemini_review = {"issues": []}
+    gemini_path = review_dir / "gemini_review.json"
+    if gemini_path.exists():
+        try:
+            gemini_review = json.loads(read_file(gemini_path))
+        except json.JSONDecodeError:
+            pass
+
+    # Build combined numbered issue list
+    reviews = [claude_review, codex_review, gemini_review]
+    labels = ["Claude", "Codex", "Gemini"]
+    formatted_issues, all_issues = build_numbered_issue_list(reviews, labels)
+
+    # Save the combined list for reference
+    write_file(review_dir / "all_issues.json",
+               json.dumps(all_issues, indent=2, ensure_ascii=False))
+    write_file(review_dir / "all_issues.md", formatted_issues)
+
+    if not all_issues:
+        # No issues from any reviewer
+        result_data = {"issues": [], "vote_details": []}
+        write_file(review_dir / "validated_issues.json",
+                   json.dumps(result_data, indent=2, ensure_ascii=False))
+        print(json.dumps({
+            "success": True, "review_dir": str(review_dir),
+            "total_issues": 0, "validated_issues": 0,
+        }))
+        return
+
+    # Build validation prompt
+    validate_tpl = load_template(project_root, "review_validate.md")
+    if not validate_tpl:
+        print(json.dumps({"success": False, "error": "review_validate.md template not found"}))
+        return
+
+    validate_prompt = safe_format(
+        validate_tpl,
+        merged_draft=draft_text,
+        flow_document=flow_document,
+        write_paper_skill=write_paper_skill,
+        all_issues=formatted_issues,
+    )
+
+    prompts_dir = ensure_dir(review_dir / "_prompts")
+    print(f"  [Codex + Gemini] Validating issues in parallel (round {round_num})...", file=sys.stderr)
+    codex_result, gemini_result = call_codex_and_gemini_parallel(
+        codex_prompt=prompt_via_file(validate_prompt, prompts_dir / "validate_codex.md"),
+        gemini_prompt=prompt_via_file(validate_prompt, prompts_dir / "validate_gemini.md"),
+        workspace=str(workspace), config=config, project_root=project_root,
+    )
+
+    codex_val = parse_validation(check_agent_result(codex_result, "Codex"))
+    gemini_val = parse_validation(check_agent_result(gemini_result, "Gemini"))
+
+    write_file(review_dir / "codex_validation.json",
+               json.dumps(codex_val, indent=2, ensure_ascii=False))
+    write_file(review_dir / "gemini_validation.json",
+               json.dumps(gemini_val, indent=2, ensure_ascii=False))
+
+    # Load Claude's validation if it exists
+    claude_val = {"validations": []}
+    claude_val_path = review_dir / "claude_validation.json"
+    if claude_val_path.exists():
+        try:
+            claude_val = json.loads(read_file(claude_val_path))
+        except json.JSONDecodeError:
+            pass
+
+    # Tally votes: >= 2/3 accept → keep
+    validated = tally_validations(all_issues, [claude_val, codex_val, gemini_val], threshold=2)
+
+    write_file(review_dir / "validated_issues.json",
+               json.dumps(validated, indent=2, ensure_ascii=False))
+
+    result = {
+        "success": True,
+        "review_dir": str(review_dir),
+        "total_issues": len(all_issues),
+        "validated_issues": len(validated["issues"]),
+        "vote_details": validated.get("vote_details", []),
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -492,7 +754,7 @@ def main():
 
     # review-external
     p_review = subparsers.add_parser("review-external",
-        help="Codex (code consistency) + Gemini (skill compliance) review in parallel")
+        help="Codex + Gemini unified review in parallel")
     p_review.add_argument("--cd", required=True, type=Path,
         help="Paper workspace directory")
     p_review.add_argument("--batch-dir", required=True, type=str,
@@ -501,6 +763,18 @@ def main():
         help="Debate round number")
     p_review.add_argument("--draft-file", required=True, type=str,
         help="Path to the draft file to review")
+
+    # validate-external
+    p_validate = subparsers.add_parser("validate-external",
+        help="Codex + Gemini validate combined issue list in parallel")
+    p_validate.add_argument("--cd", required=True, type=Path,
+        help="Paper workspace directory")
+    p_validate.add_argument("--batch-dir", required=True, type=str,
+        help="Batch directory for this paragraph")
+    p_validate.add_argument("--round", required=True, type=int,
+        help="Debate round number")
+    p_validate.add_argument("--draft-file", required=True, type=str,
+        help="Path to the draft file under review")
 
     # vote-external
     p_vote = subparsers.add_parser("vote-external",
@@ -525,6 +799,8 @@ def main():
         cmd_draft_external(args, config, project_root)
     elif args.step == "review-external":
         cmd_review_external(args, config, project_root)
+    elif args.step == "validate-external":
+        cmd_validate_external(args, config, project_root)
     elif args.step == "vote-external":
         cmd_vote_external(args, config, project_root)
 
